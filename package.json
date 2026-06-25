@@ -1,0 +1,9 @@
+{
+  "name": "form-backend",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "mongodb": "^7.0.0"
+  }
+}
