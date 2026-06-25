@@ -37,23 +37,40 @@ const runtimeStorageRoot = process.env.VERCEL
 const dataDir = join(runtimeStorageRoot, "data");
 const uploadDir = join(runtimeStorageRoot, "uploads");
 
-await mkdir(dataDir, { recursive: true });
-await mkdir(uploadDir, { recursive: true });
-
 // MongoDB configuration — set MONGODB_URI and MONGODB_DB in environment
 const MONGODB_URI = process.env.MONGODB_URI ?? (process.env.NODE_ENV === "production" ? null : "mongodb://localhost:27017");
 const MONGODB_DB = process.env.MONGODB_DB ?? "registrations_db";
 
-if (!MONGODB_URI) {
-  throw new Error(
-    "Missing MONGODB_URI in production. Set the MongoDB connection string in environment variables.",
-  );
-}
+let mongoClient;
+let registrationsCollection;
+let initialized = false;
+let initializationError = null;
 
-const mongoClient = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
-await mongoClient.connect();
-const db = mongoClient.db(MONGODB_DB);
-const registrationsCollection = db.collection("registrations");
+async function ensureInitialized() {
+  if (initialized) return;
+  if (initializationError) throw initializationError;
+
+  try {
+    await mkdir(dataDir, { recursive: true });
+    await mkdir(uploadDir, { recursive: true });
+
+    if (!MONGODB_URI) {
+      throw new Error(
+        "Missing MONGODB_URI in production. Set the MongoDB connection string in environment variables.",
+      );
+    }
+
+    mongoClient = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+    await mongoClient.connect();
+    const db = mongoClient.db(MONGODB_DB);
+    registrationsCollection = db.collection("registrations");
+
+    initialized = true;
+  } catch (error) {
+    initializationError = error;
+    throw error;
+  }
+}
 
 async function handleRequest(request, response) {
   try {
@@ -78,6 +95,8 @@ async function handleRequest(request, response) {
         storage: "mongodb",
       });
     }
+
+    await ensureInitialized();
 
     if (request.method === "GET" && url.pathname === "/api/registrations") {
       const docs = await registrationsCollection.find().sort({ _id: -1 }).limit(50).toArray();
