@@ -30,22 +30,31 @@ const COUNTRY_CITY_MAP = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const dataDir = join(__dirname, "data");
-const uploadDir = join(__dirname, "uploads");
+const runtimeStorageRoot = process.env.VERCEL
+  ? process.env.TMPDIR ?? process.env.TEMP ?? "/tmp"
+  : __dirname;
+const dataDir = join(runtimeStorageRoot, "data");
+const uploadDir = join(runtimeStorageRoot, "uploads");
 
 await mkdir(dataDir, { recursive: true });
 await mkdir(uploadDir, { recursive: true });
 
 // MongoDB configuration — set MONGODB_URI and MONGODB_DB in environment
-const MONGODB_URI = process.env.MONGODB_URI ?? "mongodb://localhost:27017";
+const MONGODB_URI = process.env.MONGODB_URI ?? (process.env.NODE_ENV === "production" ? null : "mongodb://localhost:27017");
 const MONGODB_DB = process.env.MONGODB_DB ?? "registrations_db";
+
+if (!MONGODB_URI) {
+  throw new Error(
+    "Missing MONGODB_URI in production. Set the MongoDB connection string in environment variables.",
+  );
+}
 
 const mongoClient = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
 await mongoClient.connect();
 const db = mongoClient.db(MONGODB_DB);
 const registrationsCollection = db.collection("registrations");
 
-const server = createServer(async (request, response) => {
+async function handleRequest(request, response) {
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
@@ -103,11 +112,17 @@ const server = createServer(async (request, response) => {
       message,
     });
   }
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`Registration API running at http://localhost:${PORT}`);
-});
+const server = createServer(handleRequest);
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  server.listen(PORT, () => {
+    console.log(`Registration API running at http://localhost:${PORT}`);
+  });
+}
+
+export default handleRequest;
 
 async function handleRegistration(request, response) {
   const contentType = request.headers["content-type"] ?? "";
@@ -481,6 +496,10 @@ function isAllowedOrigin(origin) {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+
+  if (configuredOrigins.length === 0) {
+    return true;
+  }
 
   if (configuredOrigins.includes(origin)) return true;
 
