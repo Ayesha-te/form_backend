@@ -474,20 +474,13 @@ function sendJson(request, response, status, payload) {
 
 function corsHeaders(request) {
   const origin = request.headers.origin;
-  const headers = {
+  return {
     "access-control-allow-methods": "GET,POST,OPTIONS",
-    "access-control-allow-headers": "Content-Type",
+    "access-control-allow-headers": "Content-Type, Accept",
+    "access-control-allow-origin": origin ?? "*",
     "access-control-max-age": "86400",
     vary: "Origin",
   };
-
-  if (origin && isAllowedOrigin(origin)) {
-    headers["access-control-allow-origin"] = origin;
-  } else if (!origin) {
-    headers["access-control-allow-origin"] = "*";
-  }
-
-  return headers;
 }
 
 function isAllowedOrigin(origin) {
