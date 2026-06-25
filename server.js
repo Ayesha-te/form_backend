@@ -19,7 +19,10 @@ const MAX_FILE_SIZE = 1024 * 1024;
 const MAX_REQUEST_SIZE = MAX_FILE_SIZE + 512 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png"]);
 const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"]);
-const DEFAULT_ALLOWED_ORIGINS = ["https://form-builder-love.vercel.app"];
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://form-builder-love.vercel.app",
+  "https://reg-form-three-eta.vercel.app",
+];
 
 const COUNTRY_CITY_MAP = {
   UAE: ["Dubai", "Sharjah", "Abu Dhabi", "Ajman", "Ras Al Khaimah"],
