@@ -15,24 +15,20 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const PORT = Number.parseInt(process.env.PORT ?? "4000", 10);
-const MAX_FILE_SIZE = 1024 * 1024;
+const MAX_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_REQUEST_SIZE = MAX_FILE_SIZE + 512 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png"]);
 const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"]);
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://form-builder-love.vercel.app",
   "https://reg-form-three-eta.vercel.app",
+  "https://reg-form-1.vercel.app",
+  "https://reg-form.vercel.app",
 ];
 
-const COUNTRY_CITY_MAP = {
-  UAE: ["Dubai", "Sharjah", "Abu Dhabi", "Ajman", "Ras Al Khaimah"],
-  India: ["Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Kolkata"],
-  USA: ["New York", "Los Angeles", "Chicago", "Houston", "San Francisco"],
-  UK: ["London", "Manchester", "Birmingham", "Liverpool", "Edinburgh"],
-  Canada: ["Toronto", "Vancouver", "Montreal", "Calgary", "Ottawa"],
-  Australia: ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide"],
-};
-
+const JERSEY_SIZES = new Set(["Small", "Medium", "Large", "XL", "XXL", "3XL", "4XL"]);
+const PREFERRED_SLEEVES = new Set(["Full Sleeves", "Half Sleeves"]);
+const AVAILABILITY_OPTIONS = new Set(["Available all matches", "Missing few matches"]);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const runtimeStorageRoot = process.env.VERCEL
   ? process.env.TMPDIR ?? process.env.TEMP ?? "/tmp"
@@ -176,14 +172,20 @@ async function handleRegistration(request, response) {
   await writeFile(join(uploadDir, storedFileName), photo.buffer, { flag: "wx" });
 
   const insertDoc = {
-    full_name: registration.fullName,
+    first_name: registration.firstName,
+    last_name: registration.lastName,
+    full_name: `${registration.firstName} ${registration.lastName}`.trim(),
     email: registration.email,
     mobile: registration.mobile,
-    date_of_birth: registration.dateOfBirth,
-    gender: registration.gender,
-    interests: registration.interests,
-    country: registration.country,
-    city: registration.city,
+    whatsapp_number: registration.whatsappNumber,
+    jersey_name: registration.jerseyName,
+    jersey_number: registration.jerseyNumber,
+    jersey_size: registration.jerseySize,
+    preferred_sleeves: registration.preferredSleeves,
+    current_club: registration.currentClub,
+    availability: registration.availability,
+    not_available_on: registration.notAvailableOn,
+    fee_agreement: registration.feeAgreement,
     photo_path: photoPath,
     original_photo_name: photo.filename,
     created_at: new Date().toISOString(),
@@ -238,67 +240,81 @@ async function serveUploadedFile(request, response, pathname) {
 
 function normalizeRegistration(fields) {
   return {
-    fullName: getString(fields.fullName).trim(),
+    firstName: getString(fields.firstName).trim(),
+    lastName: getString(fields.lastName).trim(),
     email: getString(fields.email).trim().toLowerCase(),
     mobile: getString(fields.mobile).trim(),
-    dateOfBirth: getString(fields.dateOfBirth).trim(),
-    gender: getString(fields.gender).trim(),
-    interests: getArray(fields.interests)
-      .map((interest) => interest.trim())
+    whatsappNumber: getString(fields.whatsappNumber).trim(),
+    jerseyName: getString(fields.jerseyName).trim(),
+    jerseyNumber: getString(fields.jerseyNumber).trim(),
+    jerseySize: getString(fields.jerseySize).trim(),
+    preferredSleeves: getString(fields.preferredSleeves).trim(),
+    currentClub: getString(fields.currentClub).trim(),
+    availability: getString(fields.availability).trim(),
+    notAvailableOn: getArray(fields.notAvailableOn)
+      .map((value) => value.trim())
       .filter(Boolean),
-    country: getString(fields.country).trim(),
-    city: getString(fields.city).trim(),
+    feeAgreement: getString(fields.feeAgreement).trim() === "true",
   };
 }
 
 function validateRegistration(registration, photo) {
   const errors = {};
+  const phoneRegex = /^(\+9715\d{8}|\d{10})$/;
 
-  if (registration.fullName.length < 2 || registration.fullName.length > 100) {
-    errors.fullName = "Full name must be between 2 and 100 characters.";
+  if (!registration.firstName) errors.firstName = "First name is required.";
+  if (!registration.lastName) errors.lastName = "Last name is required.";
+
+  if (!phoneRegex.test(registration.mobile)) {
+    errors.mobile = "Use 10 digits or UAE format +9715XXXXXXXX.";
   }
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registration.email)) {
     errors.email = "Enter a valid email address.";
   }
 
-  const digitCount = registration.mobile.replace(/\D/g, "").length;
-  if (!/^\+?[0-9\s-]{7,20}$/.test(registration.mobile) || digitCount < 7 || digitCount > 15) {
-    errors.mobile = "Enter a valid mobile number with 7 to 15 digits.";
+  if (!phoneRegex.test(registration.whatsappNumber)) {
+    errors.whatsappNumber = "Use 10 digits or UAE format +9715XXXXXXXX.";
   }
 
-  const birthDate = new Date(`${registration.dateOfBirth}T00:00:00Z`);
-  if (!registration.dateOfBirth || Number.isNaN(birthDate.getTime())) {
-    errors.dateOfBirth = "Date of birth is required.";
-  } else if (birthDate > new Date()) {
-    errors.dateOfBirth = "Date of birth cannot be in the future.";
+  if (!registration.jerseyName) errors.jerseyName = "Name of jersey is required.";
+
+  if (!/^\d{1,3}$/.test(registration.jerseyNumber)) {
+    errors.jerseyNumber = "Jersey number must be whole numbers only.";
   }
 
-  if (!["Male", "Female", "Other"].includes(registration.gender)) {
-    errors.gender = "Select a gender.";
+  if (!JERSEY_SIZES.has(registration.jerseySize)) {
+    errors.jerseySize = "Select a jersey size.";
   }
 
-  if (registration.interests.length < 1) {
-    errors.interests = "Pick at least one interest.";
+  if (!PREFERRED_SLEEVES.has(registration.preferredSleeves)) {
+    errors.preferredSleeves = "Select preferred sleeves.";
   }
 
-  const cities = COUNTRY_CITY_MAP[registration.country];
-  if (!cities) {
-    errors.country = "Select a supported country.";
-  } else if (!cities.includes(registration.city)) {
-    errors.city = "Select a city for the chosen country.";
+  if (!registration.currentClub) errors.currentClub = "Current club/team is required.";
+
+  if (!AVAILABILITY_OPTIONS.has(registration.availability)) {
+    errors.availability = "Select availability.";
+  }
+
+  if (registration.availability === "Missing few matches" && registration.notAvailableOn.length === 0) {
+    errors.notAvailableOn = "Select at least one match.";
+  }
+
+  if (!registration.feeAgreement) {
+    errors.feeAgreement = "You must agree to the registration and match fees.";
   }
 
   if (!photo || photo.buffer.length === 0) {
-    errors.photo = "Upload a JPG or PNG photo under 1 MB.";
+    errors.photo = "Upload a JPG or PNG photo under 2 MB.";
   } else {
     const extension = extname(photo.filename).toLowerCase();
     if (!ALLOWED_EXTENSIONS.has(extension)) {
       errors.photo = "Only JPG, JPEG, or PNG files are allowed.";
     } else if (!ALLOWED_IMAGE_TYPES.has(photo.contentType.toLowerCase())) {
       errors.photo = "Only JPG, JPEG, or PNG files are allowed.";
-    } else if (photo.buffer.length >= MAX_FILE_SIZE) {
-      errors.photo = "Photo must be smaller than 1 MB.";
+    } else if (photo.buffer.length > MAX_FILE_SIZE) {
+      errors.photo = "Photo must be 2 MB or smaller.";
     } else if (!detectImageExtension(photo.buffer)) {
       errors.photo = "Upload a valid JPG or PNG image.";
     }
@@ -461,14 +477,20 @@ function imageContentType(extension) {
 function formatRegistration(row) {
   return {
     id: row._id ? String(row._id) : Number(row.id),
+    firstName: row.first_name,
+    lastName: row.last_name,
     fullName: row.full_name,
     email: row.email,
     mobile: row.mobile,
-    dateOfBirth: row.date_of_birth,
-    gender: row.gender,
-    interests: Array.isArray(row.interests) ? row.interests : JSON.parse(row.interests || "[]"),
-    country: row.country,
-    city: row.city,
+    whatsappNumber: row.whatsapp_number,
+    jerseyName: row.jersey_name,
+    jerseyNumber: row.jersey_number,
+    jerseySize: row.jersey_size,
+    preferredSleeves: row.preferred_sleeves,
+    currentClub: row.current_club,
+    availability: row.availability,
+    notAvailableOn: Array.isArray(row.not_available_on) ? row.not_available_on : [],
+    feeAgreement: Boolean(row.fee_agreement),
     photoPath: row.photo_path,
     originalPhotoName: row.original_photo_name,
     createdAt: row.created_at,
@@ -524,7 +546,7 @@ function isAllowedOrigin(origin) {
 
   try {
     const parsed = new URL(origin);
-    return ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+    return ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname) || parsed.hostname.endsWith(".vercel.app");
   } catch {
     return false;
   }
