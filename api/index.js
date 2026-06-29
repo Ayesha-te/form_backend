@@ -1,4 +1,4 @@
-import handleRequest from "../server.js";
+import app from "../src/app.js";
 
 export const config = {
   api: {
@@ -6,6 +6,4 @@ export const config = {
   },
 };
 
-export default function handler(request, response) {
-  return handleRequest(request, response);
-}
+export default app;
