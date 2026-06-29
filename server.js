@@ -135,7 +135,7 @@ async function handleRequest(request, response) {
 
 const server = createServer(handleRequest);
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   server.listen(PORT, () => {
     console.log(`Registration API running at http://localhost:${PORT}`);
   });
