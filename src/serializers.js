@@ -20,10 +20,20 @@ export function serializeRegistration(registration, request) {
 }
 
 function getBaseUrl(request) {
-  const origin = request.headers.origin;
+  const origin = getHeader(request.headers, "origin");
   if (origin) return origin;
 
-  const protocol = request.headers["x-forwarded-proto"] ?? "http";
-  const host = request.headers["x-forwarded-host"] ?? request.headers.host;
+  const protocol = getHeader(request.headers, "x-forwarded-proto") ?? "http";
+  const host = getHeader(request.headers, "x-forwarded-host") ?? getHeader(request.headers, "host");
   return host ? `${protocol}://${host}` : "";
+}
+
+function getHeader(headers, name) {
+  if (!headers) return "";
+
+  if (typeof headers.get === "function") {
+    return headers.get(name) ?? "";
+  }
+
+  return headers[name] ?? headers[name.toLowerCase()] ?? "";
 }

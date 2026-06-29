@@ -97,6 +97,15 @@ app.get("/api/registrations/:id/photo", async (request, response, next) => {
 
 app.post("/api/registrations", upload.single("photo"), async (request, response, next) => {
   try {
+    const contentType = request.headers["content-type"] ?? "";
+    if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
+      response.status(415).json({
+        ok: false,
+        message: "Use multipart/form-data to submit the registration form.",
+      });
+      return;
+    }
+
     const input = normalizeRegistrationInput(request.body);
     const errors = validateRegistration(input, request.file);
 
@@ -159,7 +168,8 @@ app.use((error, _request, response, _next) => {
   console.error(error);
   response.status(500).json({
     ok: false,
-    message: "The backend could not process that request.",
+    message: error?.message ?? "The backend could not process that request.",
+    stack: error?.stack,
   });
 });
 
