@@ -1,22 +1,15 @@
-import 'dotenv/config';
+import "dotenv/config";
 import { createReadStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { MongoClient, ObjectId } from "mongodb";
-import {
-  dirname,
-  extname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from "node:path";
+import { MongoClient } from "mongodb";
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const PORT = Number.parseInt(process.env.PORT ?? "4000", 10);
-const MAX_FILE_SIZE = 2 * 1024 * 1024;
-const MAX_REQUEST_SIZE = MAX_FILE_SIZE + 512 * 1024;
+const MAX_FILE_SIZE = 1024 * 1024;
+const MAX_REQUEST_SIZE = MAX_FILE_SIZE + 256 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png"]);
 const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"]);
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -26,18 +19,36 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "https://reg-form.vercel.app",
 ];
 
-const JERSEY_SIZES = new Set(["Small", "Medium", "Large", "XL", "XXL", "3XL", "4XL"]);
-const PREFERRED_SLEEVES = new Set(["Full Sleeves", "Half Sleeves"]);
-const AVAILABILITY_OPTIONS = new Set(["Available all matches", "Missing few matches"]);
+const GENDER_OPTIONS = new Set(["Male", "Female", "Other"]);
+const INTEREST_OPTIONS = new Set([
+  "Sports",
+  "Music",
+  "Travel",
+  "Reading",
+  "Gaming",
+  "Cooking",
+  "Movies",
+  "Technology",
+]);
+const COUNTRY_CITY_MAP = {
+  UAE: ["Dubai", "Sharjah", "Abu Dhabi", "Ajman", "Ras Al Khaimah"],
+  India: ["Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Kolkata"],
+  USA: ["New York", "Los Angeles", "Chicago", "Houston", "San Francisco"],
+  UK: ["London", "Manchester", "Birmingham", "Liverpool", "Edinburgh"],
+  Canada: ["Toronto", "Vancouver", "Montreal", "Calgary", "Ottawa"],
+  Australia: ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide"],
+};
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const runtimeStorageRoot = process.env.VERCEL
-  ? process.env.TMPDIR ?? process.env.TEMP ?? "/tmp"
+  ? (process.env.TMPDIR ?? process.env.TEMP ?? "/tmp")
   : __dirname;
 const dataDir = join(runtimeStorageRoot, "data");
 const uploadDir = join(runtimeStorageRoot, "uploads");
 
 // MongoDB configuration — set MONGODB_URI and MONGODB_DB in environment
-const MONGODB_URI = process.env.MONGODB_URI ?? (process.env.NODE_ENV === "production" ? null : "mongodb://localhost:27017");
+const MONGODB_URI =
+  process.env.MONGODB_URI ??
+  (process.env.NODE_ENV === "production" ? null : "mongodb://localhost:27017");
 const MONGODB_DB = process.env.MONGODB_DB ?? "registrations_db";
 
 let mongoClient;
@@ -172,20 +183,14 @@ async function handleRegistration(request, response) {
   await writeFile(join(uploadDir, storedFileName), photo.buffer, { flag: "wx" });
 
   const insertDoc = {
-    first_name: registration.firstName,
-    last_name: registration.lastName,
-    full_name: `${registration.firstName} ${registration.lastName}`.trim(),
+    full_name: registration.fullName,
     email: registration.email,
     mobile: registration.mobile,
-    whatsapp_number: registration.whatsappNumber,
-    jersey_name: registration.jerseyName,
-    jersey_number: registration.jerseyNumber,
-    jersey_size: registration.jerseySize,
-    preferred_sleeves: registration.preferredSleeves,
-    current_club: registration.currentClub,
-    availability: registration.availability,
-    not_available_on: registration.notAvailableOn,
-    fee_agreement: registration.feeAgreement,
+    date_of_birth: registration.dateOfBirth,
+    gender: registration.gender,
+    interests: registration.interests,
+    country: registration.country,
+    city: registration.city,
     photo_path: photoPath,
     original_photo_name: photo.filename,
     created_at: new Date().toISOString(),
@@ -193,11 +198,12 @@ async function handleRegistration(request, response) {
 
   const result = await registrationsCollection.insertOne(insertDoc);
   const saved = await registrationsCollection.findOne({ _id: result.insertedId });
+  const registrationRecord = saved ?? { ...insertDoc, _id: result.insertedId };
 
   return sendJson(request, response, 201, {
     ok: true,
     message: "Registration submitted successfully.",
-    registration: formatRegistration(saved),
+    registration: formatRegistration(registrationRecord),
   });
 }
 
@@ -206,11 +212,7 @@ async function serveUploadedFile(request, response, pathname) {
   const filePath = resolve(uploadDir, fileName);
   const safeRelativePath = relative(uploadDir, filePath);
 
-  if (
-    !fileName ||
-    safeRelativePath.startsWith("..") ||
-    isAbsolute(safeRelativePath)
-  ) {
+  if (!fileName || safeRelativePath.startsWith("..") || isAbsolute(safeRelativePath)) {
     return sendJson(request, response, 400, {
       ok: false,
       message: "Invalid upload path.",
@@ -240,73 +242,70 @@ async function serveUploadedFile(request, response, pathname) {
 
 function normalizeRegistration(fields) {
   return {
-    firstName: getString(fields.firstName).trim(),
-    lastName: getString(fields.lastName).trim(),
+    fullName: getString(fields.fullName).replace(/\s+/g, " ").trim(),
     email: getString(fields.email).trim().toLowerCase(),
     mobile: getString(fields.mobile).trim(),
-    whatsappNumber: getString(fields.whatsappNumber).trim(),
-    jerseyName: getString(fields.jerseyName).trim(),
-    jerseyNumber: getString(fields.jerseyNumber).trim(),
-    jerseySize: getString(fields.jerseySize).trim(),
-    preferredSleeves: getString(fields.preferredSleeves).trim(),
-    currentClub: getString(fields.currentClub).trim(),
-    availability: getString(fields.availability).trim(),
-    notAvailableOn: getArray(fields.notAvailableOn)
-      .map((value) => value.trim())
-      .filter(Boolean),
-    feeAgreement: getString(fields.feeAgreement).trim() === "true",
+    dateOfBirth: getString(fields.dateOfBirth).trim(),
+    gender: getString(fields.gender).trim(),
+    interests: [
+      ...new Set(
+        getArray(fields.interests)
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    ],
+    country: getString(fields.country).trim(),
+    city: getString(fields.city).trim(),
   };
 }
 
 function validateRegistration(registration, photo) {
   const errors = {};
-  const phoneRegex = /^(\+9715\d{8}|\d{10})$/;
+  const phoneRegex = /^\+?[0-9\s-]{7,15}$/;
 
-  if (!registration.firstName) errors.firstName = "First name is required.";
-  if (!registration.lastName) errors.lastName = "Last name is required.";
+  if (registration.fullName.length < 2 || registration.fullName.length > 100) {
+    errors.fullName = "Full name must be between 2 and 100 characters.";
+  }
 
   if (!phoneRegex.test(registration.mobile)) {
-    errors.mobile = "Use 10 digits or UAE format +9715XXXXXXXX.";
+    errors.mobile = "Enter a valid mobile number (7-15 digits).";
   }
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registration.email)) {
     errors.email = "Enter a valid email address.";
   }
 
-  if (!phoneRegex.test(registration.whatsappNumber)) {
-    errors.whatsappNumber = "Use 10 digits or UAE format +9715XXXXXXXX.";
+  if (!isValidPastDate(registration.dateOfBirth)) {
+    errors.dateOfBirth = "Select a valid date of birth.";
   }
 
-  if (!registration.jerseyName) errors.jerseyName = "Name of jersey is required.";
-
-  if (!/^\d{1,3}$/.test(registration.jerseyNumber)) {
-    errors.jerseyNumber = "Jersey number must be whole numbers only.";
+  if (!GENDER_OPTIONS.has(registration.gender)) {
+    errors.gender = "Select a gender.";
   }
 
-  if (!JERSEY_SIZES.has(registration.jerseySize)) {
-    errors.jerseySize = "Select a jersey size.";
+  if (registration.interests.length === 0) {
+    errors.interests = "Pick at least one interest.";
+  } else if (registration.interests.some((interest) => !INTEREST_OPTIONS.has(interest))) {
+    errors.interests = "Pick valid interests.";
   }
 
-  if (!PREFERRED_SLEEVES.has(registration.preferredSleeves)) {
-    errors.preferredSleeves = "Select preferred sleeves.";
+  if (!registration.country) {
+    errors.country = "Select a country.";
+  } else if (!(registration.country in COUNTRY_CITY_MAP)) {
+    errors.country = "Select a valid country.";
   }
 
-  if (!registration.currentClub) errors.currentClub = "Current club/team is required.";
-
-  if (!AVAILABILITY_OPTIONS.has(registration.availability)) {
-    errors.availability = "Select availability.";
-  }
-
-  if (registration.availability === "Missing few matches" && registration.notAvailableOn.length === 0) {
-    errors.notAvailableOn = "Select at least one match.";
-  }
-
-  if (!registration.feeAgreement) {
-    errors.feeAgreement = "You must agree to the registration and match fees.";
+  if (!registration.city) {
+    errors.city = "Select a city.";
+  } else if (
+    registration.country in COUNTRY_CITY_MAP &&
+    !COUNTRY_CITY_MAP[registration.country].includes(registration.city)
+  ) {
+    errors.city = "Select a valid city.";
   }
 
   if (!photo || photo.buffer.length === 0) {
-    errors.photo = "Upload a JPG or PNG photo under 2 MB.";
+    errors.photo = "Upload a JPG or PNG photo under 1 MB.";
   } else {
     const extension = extname(photo.filename).toLowerCase();
     if (!ALLOWED_EXTENSIONS.has(extension)) {
@@ -314,7 +313,7 @@ function validateRegistration(registration, photo) {
     } else if (!ALLOWED_IMAGE_TYPES.has(photo.contentType.toLowerCase())) {
       errors.photo = "Only JPG, JPEG, or PNG files are allowed.";
     } else if (photo.buffer.length > MAX_FILE_SIZE) {
-      errors.photo = "Photo must be 2 MB or smaller.";
+      errors.photo = "Photo must be 1 MB or smaller.";
     } else if (!detectImageExtension(photo.buffer)) {
       errors.photo = "Upload a valid JPG or PNG image.";
     }
@@ -475,26 +474,32 @@ function imageContentType(extension) {
 }
 
 function formatRegistration(row) {
+  const fullName =
+    row.full_name ?? [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
+
   return {
-    id: row._id ? String(row._id) : Number(row.id),
-    firstName: row.first_name,
-    lastName: row.last_name,
-    fullName: row.full_name,
-    email: row.email,
-    mobile: row.mobile,
-    whatsappNumber: row.whatsapp_number,
-    jerseyName: row.jersey_name,
-    jerseyNumber: row.jersey_number,
-    jerseySize: row.jersey_size,
-    preferredSleeves: row.preferred_sleeves,
-    currentClub: row.current_club,
-    availability: row.availability,
-    notAvailableOn: Array.isArray(row.not_available_on) ? row.not_available_on : [],
-    feeAgreement: Boolean(row.fee_agreement),
-    photoPath: row.photo_path,
-    originalPhotoName: row.original_photo_name,
-    createdAt: row.created_at,
+    id: row._id ? String(row._id) : String(row.id ?? ""),
+    fullName,
+    email: row.email ?? "",
+    mobile: row.mobile ?? row.whatsapp_number ?? "",
+    dateOfBirth: row.date_of_birth ?? "",
+    gender: row.gender ?? "",
+    interests: Array.isArray(row.interests) ? row.interests : [],
+    country: row.country ?? "",
+    city: row.city ?? "",
+    photoPath: row.photo_path ?? null,
+    originalPhotoName: row.original_photo_name ?? null,
+    createdAt: row.created_at ?? null,
   };
+}
+
+function isValidPastDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  return parsed <= new Date();
 }
 
 function getString(value) {
@@ -546,7 +551,10 @@ function isAllowedOrigin(origin) {
 
   try {
     const parsed = new URL(origin);
-    return ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname) || parsed.hostname.endsWith(".vercel.app");
+    return (
+      ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname) ||
+      parsed.hostname.endsWith(".vercel.app")
+    );
   } catch {
     return false;
   }
