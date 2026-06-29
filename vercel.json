@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/[...slug].js"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "/api/[...slug].js"
+    }
+  ]
+}
